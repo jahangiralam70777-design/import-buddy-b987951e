@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
@@ -12,18 +12,28 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  Loader2, Search, Download, Radio, CheckCircle2, ArrowLeft, ExternalLink,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Loader2, Search, Download, CheckCircle2, ArrowLeft, ExternalLink,
+  Activity, FileSpreadsheet, FileText, ChevronDown,
+  PlayCircle, Trophy, Pencil, Plus,
 } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend, RadialBarChart, RadialBar,
 } from "recharts";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { supabase } from "@/integrations/supabase/client";
 import {
   adminListMocks,
   adminListLiveMocks,
   adminMockBreakdowns,
   adminMockAttemptsOverview,
   adminMockDetail,
+  adminMockActivity,
 } from "@/lib/admin-mock.functions";
 
 export type MockCardKey =
@@ -68,11 +78,152 @@ function exportCsv(filename: string, header: string[], rows: (string | number)[]
   a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
 }
+function exportXlsx(filename: string, header: string[], rows: (string | number)[][]) {
+  const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+  XLSX.writeFile(wb, filename);
+}
+function exportPdf(filename: string, title: string, header: string[], rows: (string | number)[][]) {
+  const doc = new jsPDF({ orientation: header.length > 5 ? "landscape" : "portrait" });
+  doc.setFontSize(14);
+  doc.text(title, 14, 16);
+  doc.setFontSize(9);
+  doc.text(new Date().toLocaleString(), 14, 22);
+  autoTable(doc, {
+    head: [header],
+    body: rows.map((r) => r.map((c) => String(c))),
+    startY: 28,
+    styles: { fontSize: 8 },
+    headStyles: { fillColor: [139, 92, 246] },
+  });
+  doc.save(filename);
+}
+
+function ExportMenu({ baseName, title, header, rows }: {
+  baseName: string; title: string; header: string[]; rows: (string | number)[][];
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm">
+          <Download className="h-4 w-4" /> Export <ChevronDown className="h-3 w-3" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => exportCsv(`${baseName}.csv`, header, rows)}>
+          <FileText className="h-4 w-4" /> CSV
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => exportXlsx(`${baseName}.xlsx`, header, rows)}>
+          <FileSpreadsheet className="h-4 w-4" /> Excel (.xlsx)
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => exportPdf(`${baseName}.pdf`, title, header, rows)}>
+          <FileText className="h-4 w-4" /> PDF
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 function fmtMins(seconds: number) {
   if (!seconds) return "—";
   const m = Math.round(seconds / 60);
   return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+}
+
+/** Realtime subscription scoped to the drawer; invalidates supplied query keys. */
+function useMockRealtimePulse(enabled: boolean, invalidateKeys: string[]) {
+  const qc = useQueryClient();
+  const [pulse, setPulse] = useState(0);
+  const keysRef = useRef(invalidateKeys);
+  keysRef.current = invalidateKeys;
+  useEffect(() => {
+    if (!enabled) return;
+    const ch = supabase
+      .channel(`mock-drawer-${Math.random().toString(36).slice(2)}`)
+      .on("postgres_changes" as never, { event: "*", schema: "public", table: "quizzes" }, () => {
+        setPulse(Date.now());
+        for (const k of keysRef.current) qc.invalidateQueries({ queryKey: [k] });
+      })
+      .on("postgres_changes" as never, { event: "*", schema: "public", table: "exam_attempts" }, () => {
+        setPulse(Date.now());
+        for (const k of keysRef.current) qc.invalidateQueries({ queryKey: [k] });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [enabled, qc]);
+  return pulse;
+}
+
+function LivePulse({ pulse, label = "Live" }: { pulse: number; label?: string }) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => force((n) => n + 1), 15_000);
+    return () => clearInterval(t);
+  }, []);
+  const age = pulse ? Math.max(0, Math.round((Date.now() - pulse) / 1000)) : null;
+  return (
+    <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] text-emerald-400">
+      <span className="relative flex h-2 w-2">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500/60" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+      </span>
+      {label} {age != null ? `· ${age}s ago` : "· waiting"}
+    </div>
+  );
+}
+
+function ActivityFeed({ quizId }: { quizId?: string }) {
+  const fn = useServerFn(adminMockActivity);
+  const { data, isLoading } = useQuery({
+    queryKey: ["mock-activity", quizId ?? "all"],
+    queryFn: () => fn({ data: { quizId, limit: 50 } }),
+    refetchInterval: 20_000,
+  });
+  const events = data?.events ?? [];
+  const iconFor = (k: string) =>
+    k === "completed" ? <Trophy className="h-3.5 w-3.5 text-emerald-400" /> :
+    k === "started"   ? <PlayCircle className="h-3.5 w-3.5 text-blue-400" /> :
+    k === "created"   ? <Plus className="h-3.5 w-3.5 text-violet-400" /> :
+                        <Pencil className="h-3.5 w-3.5 text-amber-400" />;
+  return (
+    <div className="rounded-xl border border-white/10 bg-background/40">
+      <div className="flex items-center justify-between border-b border-white/10 px-4 py-2">
+        <p className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+          <Activity className="h-4 w-4" /> Activity feed
+        </p>
+        <ExportMenu
+          baseName={`mock-activity-${quizId ?? "all"}`}
+          title="Mock test activity"
+          header={["Time", "Event", "Actor", "Target", "Details"]}
+          rows={events.map((e) => [
+            new Date(e.at).toLocaleString(), e.kind, e.actor, e.target, e.meta,
+          ])}
+        />
+      </div>
+      {isLoading ? <LoadingRow /> : events.length === 0 ? (
+        <Empty message="No activity recorded yet." />
+      ) : (
+        <ul className="max-h-[320px] divide-y divide-white/5 overflow-y-auto">
+          {events.map((e, i) => (
+            <li key={i} className="flex items-start gap-3 px-4 py-2 text-xs">
+              <span className="mt-1">{iconFor(e.kind)}</span>
+              <div className="flex-1 min-w-0">
+                <p className="truncate">
+                  <span className="font-medium text-foreground">{e.actor}</span>{" "}
+                  <span className="text-muted-foreground">{e.kind}</span>{" "}
+                  <span className="truncate">{e.target}</span>
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {new Date(e.at).toLocaleString()} · {e.meta}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 export function MockCardDrawer({
@@ -148,23 +299,19 @@ function MockListView({ preset, onDrillMock }: { preset: Preset; onDrillMock: (i
           />
         </div>
         <Badge variant="secondary">{data?.count ?? 0} total</Badge>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => exportCsv(
-            `mocks-${preset.status ?? preset.date ?? "all"}.csv`,
-            ["Title", "Status", "Level", "Questions", "Duration (min)", "Starts", "Ends", "Updated"],
-            rows.map((r) => [
-              r.title, r.status, r.level, r.total_questions,
-              Math.round(r.duration_seconds / 60),
-              r.starts_at ?? "", r.ends_at ?? "", r.updated_at,
-            ]),
-          )}
-        >
-          <Download className="h-4 w-4" /> CSV
-        </Button>
+        <ExportMenu
+          baseName={`mocks-${preset.status ?? preset.date ?? "all"}`}
+          title={`Mocks · ${preset.status ?? preset.date ?? "all"}`}
+          header={["Title", "Status", "Level", "Questions", "Duration (min)", "Starts", "Ends", "Updated"]}
+          rows={rows.map((r) => [
+            r.title, r.status, r.level, r.total_questions,
+            Math.round(r.duration_seconds / 60),
+            r.starts_at ?? "", r.ends_at ?? "", r.updated_at,
+          ])}
+        />
       </div>
       <MockTable rows={rows} isLoading={isLoading} onRowClick={onDrillMock} />
+      <ActivityFeed />
     </div>
   );
 }
@@ -222,13 +369,25 @@ function LiveMocksView({ onDrillMock }: { onDrillMock: (id: string) => void }) {
     queryFn: () => fn({ data: { limit: 100 } }),
     refetchInterval: 15_000,
   });
+  const pulse = useMockRealtimePulse(true, ["mock-card-live", "mock-activity"]);
   const rows = (data?.rows ?? []) as Row[];
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 text-xs text-emerald-400">
-        <Radio className="h-4 w-4" /> Auto-refreshing every 15s • {rows.length} live
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <LivePulse pulse={pulse} label={`${rows.length} live now`} />
+        <ExportMenu
+          baseName="mocks-live-now"
+          title="Live mocks"
+          header={["Title", "Status", "Level", "Questions", "Duration (min)", "Starts", "Ends"]}
+          rows={rows.map((r) => [
+            r.title, r.status, r.level, r.total_questions,
+            Math.round(r.duration_seconds / 60),
+            r.starts_at ?? "", r.ends_at ?? "",
+          ])}
+        />
       </div>
       <MockTable rows={rows} isLoading={isLoading} onRowClick={onDrillMock} />
+      <ActivityFeed />
     </div>
   );
 }
@@ -256,6 +415,7 @@ function AttemptsView({ focus, onDrillMock }: { focus?: "completion"; onDrillMoc
     queryKey: ["mock-card-attempts", rangeDays],
     queryFn: () => fn({ data: { rangeDays } }),
   });
+  const pulse = useMockRealtimePulse(true, ["mock-card-attempts", "mock-activity"]);
   if (isLoading || !data) return <LoadingRow />;
 
   const completionPieData = [
@@ -265,14 +425,19 @@ function AttemptsView({ focus, onDrillMock }: { focus?: "completion"; onDrillMoc
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <RangeTabs value={rangeDays} onChange={setRangeDays} />
-        <Button variant="outline" size="sm" onClick={() => exportCsv(
-          `mock-attempts-${rangeDays}d.csv`,
-          ["Day", "Attempts", "Completed", "Avg Score"],
-          data.daily.map((d) => [d.day, d.count, d.completed, d.avgScore]),
-        )}><Download className="h-4 w-4" /> CSV</Button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <RangeTabs value={rangeDays} onChange={setRangeDays} />
+          <LivePulse pulse={pulse} />
+        </div>
+        <ExportMenu
+          baseName={`mock-attempts-${rangeDays}d`}
+          title={`Mock attempts · last ${rangeDays} days`}
+          header={["Day", "Attempts", "Completed", "Avg Score"]}
+          rows={data.daily.map((d) => [d.day, d.count, d.completed, d.avgScore])}
+        />
       </div>
+
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="Total attempts" value={data.totalAttempts} />
@@ -359,6 +524,7 @@ function AttemptsView({ focus, onDrillMock }: { focus?: "completion"; onDrillMoc
           </div>
         )}
       </div>
+      <ActivityFeed />
     </div>
   );
 }
@@ -468,6 +634,7 @@ function BreakdownView({ focus, onDrillMock }: { focus: "status" | "questions"; 
           </div>
         </>
       )}
+      <ActivityFeed />
     </div>
   );
 }
@@ -483,6 +650,7 @@ function MockDetailView({ quizId, onBack }: { quizId: string; onBack: () => void
     queryKey: ["mock-detail", quizId, rangeDays],
     queryFn: () => fn({ data: { quizId, rangeDays } }),
   });
+  const pulse = useMockRealtimePulse(true, ["mock-detail", "mock-activity"]);
 
   const mock = data?.mock as Row | undefined;
   const completionGauge = useMemo(() => {
@@ -508,14 +676,19 @@ function MockDetailView({ quizId, onBack }: { quizId: string; onBack: () => void
         <div className="space-y-4 px-6 py-4">
           {isLoading || !data ? <LoadingRow /> : (
             <>
-              <div className="flex items-center justify-between">
-                <RangeTabs value={rangeDays} onChange={setRangeDays} />
-                <Button variant="outline" size="sm" onClick={() => exportCsv(
-                  `mock-${quizId}-attempts-${rangeDays}d.csv`,
-                  ["Day", "Attempts", "Completed", "Avg Score"],
-                  data.daily.map((d) => [d.day, d.count, d.completed, d.avgScore]),
-                )}><Download className="h-4 w-4" /> CSV</Button>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <RangeTabs value={rangeDays} onChange={setRangeDays} />
+                  <LivePulse pulse={pulse} />
+                </div>
+                <ExportMenu
+                  baseName={`mock-${quizId}-${rangeDays}d`}
+                  title={mock?.title ? `${mock.title} · ${rangeDays}d` : "Mock detail"}
+                  header={["Day", "Attempts", "Completed", "Avg Score"]}
+                  rows={data.daily.map((d) => [d.day, d.count, d.completed, d.avgScore])}
+                />
               </div>
+
 
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <Stat label="Attempts" value={data.stats.totalAttempts} />
@@ -564,7 +737,17 @@ function MockDetailView({ quizId, onBack }: { quizId: string; onBack: () => void
               </ChartCard>
 
               <div>
-                <p className="mb-2 text-xs font-semibold text-muted-foreground">Top scorers</p>
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-semibold text-muted-foreground">Top scorers</p>
+                  {data.topScorers.length > 0 && (
+                    <ExportMenu
+                      baseName={`mock-${quizId}-top-scorers`}
+                      title="Top scorers"
+                      header={["User", "Best %", "Attempts", "Last"]}
+                      rows={data.topScorers.map((u) => [u.name, u.score, u.attempts, u.lastAt ?? ""])}
+                    />
+                  )}
+                </div>
                 {data.topScorers.length === 0 ? <Empty message="No scorers yet." /> : (
                   <div className="overflow-hidden rounded-xl border border-white/10">
                     <Table>
@@ -594,7 +777,20 @@ function MockDetailView({ quizId, onBack }: { quizId: string; onBack: () => void
               </div>
 
               <div>
-                <p className="mb-2 text-xs font-semibold text-muted-foreground">Recent attempts</p>
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-semibold text-muted-foreground">Recent attempts</p>
+                  {data.recent.length > 0 && (
+                    <ExportMenu
+                      baseName={`mock-${quizId}-recent-attempts`}
+                      title="Recent attempts"
+                      header={["User", "Status", "Score", "Duration (s)", "Started", "Completed"]}
+                      rows={data.recent.map((r) => [
+                        r.userName, r.status, r.score ?? "",
+                        r.duration_seconds, r.started_at ?? "", r.completed_at ?? "",
+                      ])}
+                    />
+                  )}
+                </div>
                 {data.recent.length === 0 ? <Empty message="No attempts yet." /> : (
                   <div className="overflow-hidden rounded-xl border border-white/10">
                     <Table>
@@ -624,8 +820,11 @@ function MockDetailView({ quizId, onBack }: { quizId: string; onBack: () => void
                   </div>
                 )}
               </div>
+
+              <ActivityFeed quizId={quizId} />
             </>
           )}
+
         </div>
       </ScrollArea>
     </div>
