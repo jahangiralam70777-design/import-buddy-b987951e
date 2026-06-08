@@ -699,67 +699,56 @@ export const adminMockBreakdowns = createServerFn({ method: "POST" })
     };
   });
 
-// Attempts overview from quiz_sessions (kind via join not needed: filter by mock quizzes).
+// Attempts overview from exam_attempts where kind='mock'. Real Supabase reads.
 export const adminMockAttemptsOverview = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     await assertAdmin(context.supabase, context.userId);
     const sb = context.supabase;
+    const sinceIso = new Date(Date.now() - 30 * 86400_000).toISOString();
 
-    // Get mock quiz IDs first (paged).
-    const mockIds: string[] = [];
-    let from = 0;
-    const pageSize = 1000;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const { data, error } = await sb
-        .from("quizzes")
-        .select("id")
-        .eq("kind", "mock")
-        .range(from, from + pageSize - 1);
-      if (error) throw error;
-      const batch = (data ?? []) as Array<{ id: string }>;
-      mockIds.push(...batch.map((r) => r.id));
-      if (batch.length < pageSize) break;
-      from += pageSize;
-    }
-
-    if (mockIds.length === 0) {
-      return { totalAttempts: 0, completed: 0, abandoned: 0, completionRate: 0, daily: [], topMocks: [] };
-    }
-
-    // Total attempts and status counts on quiz_sessions.
     const [{ count: totalAttempts }, { count: completed }, { data: recent }] = await Promise.all([
-      sb.from("quiz_sessions").select("id", { count: "exact", head: true }).in("quiz_id", mockIds),
-      sb.from("quiz_sessions").select("id", { count: "exact", head: true }).in("quiz_id", mockIds).eq("status", "submitted"),
-      sb.from("quiz_sessions").select("quiz_id,status,submitted_at,started_at").in("quiz_id", mockIds).gte("started_at", new Date(Date.now() - 30 * 86400_000).toISOString()).limit(5000),
+      sb.from("exam_attempts").select("id", { count: "exact", head: true }).eq("kind", "mock"),
+      sb.from("exam_attempts").select("id", { count: "exact", head: true }).eq("kind", "mock").not("completed_at", "is", null),
+      sb.from("exam_attempts").select("quiz_id,status,started_at,completed_at,title").eq("kind", "mock").gte("started_at", sinceIso).limit(5000),
     ]);
 
     const tot = totalAttempts ?? 0;
     const done = completed ?? 0;
     const abandoned = Math.max(0, tot - done);
 
-    // Daily trend (last 30 days) from recent sample.
     const dayMap = new Map<string, number>();
     for (const r of (recent ?? []) as Array<{ started_at: string | null }>) {
       const d = r.started_at ? r.started_at.slice(0, 10) : null;
       if (!d) continue;
       dayMap.set(d, (dayMap.get(d) ?? 0) + 1);
     }
-    const daily = Array.from(dayMap.entries()).map(([day, count]) => ({ day, count })).sort((a, b) => a.day.localeCompare(b.day));
+    const daily = Array.from(dayMap.entries())
+      .map(([day, count]) => ({ day, count }))
+      .sort((a, b) => a.day.localeCompare(b.day));
 
-    // Top mocks by attempts.
-    const perMock = new Map<string, number>();
-    for (const r of (recent ?? []) as Array<{ quiz_id: string }>) {
-      perMock.set(r.quiz_id, (perMock.get(r.quiz_id) ?? 0) + 1);
+    // Top mocks by attempts (recent sample).
+    const perMock = new Map<string, { count: number; title: string | null }>();
+    for (const r of (recent ?? []) as Array<{ quiz_id: string | null; title: string | null }>) {
+      const key = r.quiz_id ?? `__notitle__:${r.title ?? "unknown"}`;
+      const cur = perMock.get(key) ?? { count: 0, title: r.title };
+      cur.count += 1;
+      perMock.set(key, cur);
     }
-    const topIds = Array.from(perMock.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10);
-    let topMocks: Array<{ id: string; title: string; attempts: number }> = [];
-    if (topIds.length) {
-      const { data: titles } = await sb.from("quizzes").select("id,title").in("id", topIds.map(([id]) => id));
-      const tmap = new Map<string, string>((titles ?? []).map((t: { id: string; title: string }) => [t.id, t.title]));
-      topMocks = topIds.map(([id, attempts]) => ({ id, title: tmap.get(id) ?? id, attempts }));
+    const topRaw = Array.from(perMock.entries()).sort((a, b) => b[1].count - a[1].count).slice(0, 10);
+    const realIds = topRaw.map(([id]) => id).filter((id) => !id.startsWith("__notitle__:"));
+    const titleMap = new Map<string, string>();
+    if (realIds.length) {
+      const { data: titles } = await sb.from("quizzes").select("id,title").in("id", realIds);
+      for (const t of (titles ?? []) as Array<{ id: string; title: string }>) {
+        titleMap.set(t.id, t.title);
+      }
     }
+    const topMocks = topRaw.map(([id, v]) => ({
+      id,
+      title: titleMap.get(id) ?? v.title ?? "Untitled mock",
+      attempts: v.count,
+    }));
 
     return {
       totalAttempts: tot,
