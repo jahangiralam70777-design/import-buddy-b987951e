@@ -357,15 +357,20 @@ export function MockTestManagerFlow() {
 
       {/* KPI Stats — premium 6-card grid */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {[
-          { l: "Total Mocks", v: stats.total, i: Trophy, c: "var(--neon-purple)", d: "+12.5%", up: true },
-          { l: "Published", v: stats.published, i: CheckCircle2, c: "#10b981", d: "+18.6%", up: true },
-          { l: "Drafts", v: stats.drafts, i: FileText, c: "#f43f5e", d: "-4.3%", up: false },
-          { l: "Scheduled", v: stats.scheduled, i: CalendarClock, c: "var(--neon-blue)", d: "+6.2%", up: true },
-          { l: "Live Now", v: stats.live, i: Radio, c: "#22c55e", d: "Active", up: true },
-          { l: "Archived", v: stats.archived, i: Save, c: "#94a3b8", d: "Stable", up: true },
-        ].map((s) => (
-          <div key={s.l} className="glass relative overflow-hidden rounded-2xl p-4 transition-all hover:-translate-y-0.5 hover:shadow-glow">
+        {([
+          { k: "total",     l: "Total Mocks", v: stats.total,     i: Trophy,         c: "var(--neon-purple)", d: "+12.5%", up: true },
+          { k: "published", l: "Published",   v: stats.published, i: CheckCircle2,   c: "#10b981",            d: "+18.6%", up: true },
+          { k: "drafts",    l: "Drafts",      v: stats.drafts,    i: FileText,       c: "#f43f5e",            d: "-4.3%",  up: false },
+          { k: "scheduled", l: "Scheduled",   v: stats.scheduled, i: CalendarClock,  c: "var(--neon-blue)",   d: "+6.2%",  up: true },
+          { k: "live",      l: "Live Now",    v: stats.live,      i: Radio,          c: "#22c55e",            d: "Active", up: true },
+          { k: "archived",  l: "Archived",    v: stats.archived,  i: Save,           c: "#94a3b8",            d: "Stable", up: true },
+        ] as const).map((s) => (
+          <button
+            key={s.l}
+            type="button"
+            onClick={() => setOpenCard(s.k)}
+            className="glass relative overflow-hidden rounded-2xl p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--neon-purple)]"
+          >
             <div
               className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10"
               style={{ background: `color-mix(in oklab, ${s.c} 18%, transparent)` }}
@@ -378,7 +383,7 @@ export function MockTestManagerFlow() {
               {s.up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
               {s.d}
             </div>
-          </div>
+          </button>
         ))}
       </div>
 
