@@ -169,6 +169,12 @@ export function McqFlow() {
     name: string;
     description: string | null;
   } | null>(null);
+
+  // Session config (chosen on the pre-session card)
+  const [sessionCount, setSessionCount] = useState<"10" | "25" | "50" | "all">("25");
+  const [sessionTimerMin, setSessionTimerMin] = useState<0 | 5 | 10 | 20>(0); // 0 = off
+  const [sessionMode, setSessionMode] = useState<"instant" | "submit-end">("instant");
+  const [timeLeft, setTimeLeft] = useState<number>(0);
   const toggleFlag = useCallback((i: number) => {
     setFlagged((prev) => {
       const next = new Set(prev);
