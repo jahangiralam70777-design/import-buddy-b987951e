@@ -6,7 +6,7 @@ import {
   BookOpen, ChevronRight, ChevronDown, Bookmark, Flame, ArrowLeft, ArrowRight,
   Check, X, Lightbulb, Loader2, Trophy, RotateCw, Eye, Clock, Target,
   CheckCircle2, XCircle, MinusCircle, BarChart3, Flag, Search, Play, Layers,
-  TrendingUp, Zap,
+  TrendingUp, Zap, Lock, Settings2, Timer, Shuffle,
 } from "lucide-react";
 
 import { listSubjects, listChapters, listMcqs, listSubjectProgress, listChapterProgress } from "@/lib/learning.functions";
