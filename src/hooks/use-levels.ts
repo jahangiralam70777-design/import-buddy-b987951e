@@ -9,6 +9,7 @@ export type LevelRow = {
   color: string | null;
   icon: string | null;
   sort_order: number;
+  is_locked?: boolean;
 };
 
 /**

@@ -8,7 +8,7 @@ export const listLevels = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("levels")
-      .select("code,name,description,color,icon,sort_order")
+      .select("code,name,description,color,icon,sort_order,is_locked")
       .eq("status", "published")
       .order("sort_order", { ascending: true });
     if (error) throw error;
@@ -205,24 +205,44 @@ export const listChapters = createServerFn({ method: "POST" })
   });
 
 // ---- MCQs by chapter ----
-const mcqsSchema = z.object({
-  chapterId: z.string().uuid(),
-  limit: z.number().int().min(1).max(2000).optional(),
-});
+const mcqsSchema = z
+  .object({
+    chapterId: z.string().uuid().nullable().optional(),
+    subjectId: z.string().uuid().nullable().optional(),
+    level: z.string().trim().max(40).nullable().optional(),
+    limit: z.number().int().min(1).max(2000).optional(),
+  })
+  .refine((v) => v.chapterId || v.subjectId || v.level, {
+    message: "Provide chapterId, subjectId or level",
+  });
 
 export const listMcqs = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i: z.infer<typeof mcqsSchema>) => mcqsSchema.parse(i))
   .handler(async ({ data, context }) => {
-    const { data: rows, error } = await context.supabase
+    const sb = context.supabase;
+    let chapterIds: string[] | null = null;
+    if (!data.chapterId) {
+      // "All Chapters" mode — gather chapter ids for the subject/level.
+      let cq = sb.from("chapters").select("id,subject_id,subjects!inner(level)").eq("status", "published");
+      if (data.subjectId) cq = cq.eq("subject_id", data.subjectId);
+      if (data.level) cq = cq.ilike("subjects.level", data.level);
+      const { data: cRows, error: cErr } = await cq;
+      if (cErr) throw cErr;
+      chapterIds = (cRows ?? []).map((c) => c.id);
+      if (!chapterIds.length) return [];
+    }
+    let q = sb
       .from("mcqs")
       .select(
         "id,question,option_a,option_b,option_c,option_d,correct_option,explanation,difficulty,tags",
       )
-      .eq("chapter_id", data.chapterId)
       .eq("status", "published")
       .order("created_at", { ascending: true })
       .limit(data.limit ?? 2000);
+    if (data.chapterId) q = q.eq("chapter_id", data.chapterId);
+    else if (chapterIds) q = q.in("chapter_id", chapterIds);
+    const { data: rows, error } = await q;
     if (error) throw error;
     return rows ?? [];
   });
