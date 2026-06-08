@@ -44,6 +44,7 @@ import {
   adminGetMockQuestions,
   adminAutoGenerateMock,
 } from "@/lib/admin-mock.functions";
+import { MockCardDrawer, type MockCardKey } from "./MockCardDrawer";
 
 type Level = string;
 type Status = "draft" | "published" | "archived";
