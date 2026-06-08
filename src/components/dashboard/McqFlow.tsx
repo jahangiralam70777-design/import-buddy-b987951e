@@ -277,8 +277,13 @@ export function McqFlow() {
     enabled: !!chapterId && step === 3,
   });
 
-  // Full chapter (all MCQs).
-  const allMcqs = useMemo(() => (mcqsQ.data ?? []) as Mcq[], [mcqsQ.data]);
+  // Full chapter (all MCQs), optionally truncated by session config.
+  const rawMcqs = useMemo(() => (mcqsQ.data ?? []) as Mcq[], [mcqsQ.data]);
+  const allMcqs = useMemo(() => {
+    if (sessionCount === "all") return rawMcqs;
+    const n = Number(sessionCount);
+    return rawMcqs.slice(0, n);
+  }, [rawMcqs, sessionCount]);
   const totalAll = allMcqs.length;
   const numBatches = Math.max(1, Math.ceil(totalAll / BATCH_SIZE));
   const safeBatchIndex = Math.min(batchIndex, Math.max(0, numBatches - 1));
