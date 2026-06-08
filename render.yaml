@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: app
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: npm install && npm run build:node
+    startCommand: npm start
+    envVars:
+      - key: NITRO_PRESET
+        value: node-server
+      - key: NODE_VERSION
+        value: "20"
+      - key: PORT
+        value: "10000"
+      # Add these in the Render dashboard (do not commit values):
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
