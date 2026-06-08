@@ -901,7 +901,7 @@ export function MockTestManagerFlow() {
 
       {/* Bottom analytics row */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <div className="glass rounded-2xl p-4">
+        <button type="button" onClick={() => setOpenCard("attempts")} className="glass rounded-2xl p-4 text-left transition hover:-translate-y-0.5 hover:shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--neon-purple)]">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-muted-foreground">Attempts Overview</p>
             <BarChart3 className="h-4 w-4 text-[var(--neon-purple)]" />
@@ -912,8 +912,8 @@ export function MockTestManagerFlow() {
             <polyline fill="none" stroke="url(#g1)" strokeWidth="2" points="0,20 15,16 30,18 45,10 60,14 75,8 90,12 105,6 120,9" />
             <defs><linearGradient id="g1" x1="0" x2="1"><stop offset="0" stopColor="#8b5cf6" /><stop offset="1" stopColor="#3b82f6" /></linearGradient></defs>
           </svg>
-        </div>
-        <div className="glass rounded-2xl p-4">
+        </button>
+        <button type="button" onClick={() => setOpenCard("completion")} className="glass rounded-2xl p-4 text-left transition hover:-translate-y-0.5 hover:shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--neon-purple)]">
           <p className="text-xs font-semibold text-muted-foreground">Completion Rate</p>
           <div className="mt-2 flex items-center justify-between">
             <div>
@@ -927,8 +927,8 @@ export function MockTestManagerFlow() {
               </svg>
             </div>
           </div>
-        </div>
-        <div className="glass rounded-2xl p-4">
+        </button>
+        <button type="button" onClick={() => setOpenCard("avgQuestions")} className="glass rounded-2xl p-4 text-left transition hover:-translate-y-0.5 hover:shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--neon-purple)]">
           <p className="text-xs font-semibold text-muted-foreground">Avg. Questions</p>
           <div className="mt-2 flex items-center justify-between">
             <div>
@@ -942,16 +942,16 @@ export function MockTestManagerFlow() {
               </svg>
             </div>
           </div>
-        </div>
-        <div className="glass rounded-2xl p-4 lg:col-span-1">
+        </button>
+        <button type="button" onClick={() => setOpenCard("topStatus")} className="glass rounded-2xl p-4 text-left transition hover:-translate-y-0.5 hover:shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--neon-purple)] lg:col-span-1">
           <p className="text-xs font-semibold text-muted-foreground">Top Status</p>
           <p className="font-display mt-1 text-xl font-bold capitalize">{stats.published >= stats.drafts ? "Published" : "Draft"}</p>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
             <div className="h-full bg-cta-gradient" style={{ width: `${stats.total ? Math.round((Math.max(stats.published, stats.drafts) / stats.total) * 100) : 0}%` }} />
           </div>
           <p className="mt-1 text-[10px] text-muted-foreground">{stats.total ? Math.round((Math.max(stats.published, stats.drafts) / stats.total) * 100) : 0}% of library</p>
-        </div>
-        <div className="glass rounded-2xl p-4">
+        </button>
+        <button type="button" onClick={() => setOpenCard("liveMocks")} className="glass rounded-2xl p-4 text-left transition hover:-translate-y-0.5 hover:shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--neon-purple)]">
           <p className="text-xs font-semibold text-muted-foreground">Live Mocks</p>
           <p className="font-display mt-1 text-3xl font-bold text-emerald-400">{stats.live}</p>
           <p className="text-[10px] inline-flex items-center gap-1 text-emerald-400">
@@ -961,8 +961,10 @@ export function MockTestManagerFlow() {
           <svg viewBox="0 0 120 28" className="mt-2 h-7 w-full">
             <polyline fill="none" stroke="#10b981" strokeWidth="2" points="0,20 12,18 24,12 36,16 48,8 60,14 72,6 84,10 96,4 108,8 120,2" />
           </svg>
-        </div>
+        </button>
       </div>
+
+      <MockCardDrawer cardKey={openCard} open={!!openCard} onClose={() => setOpenCard(null)} />
     </div>
 
   );
