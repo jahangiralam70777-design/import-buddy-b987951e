@@ -634,6 +634,7 @@ function BreakdownView({ focus, onDrillMock }: { focus: "status" | "questions"; 
           </div>
         </>
       )}
+      <ActivityFeed />
     </div>
   );
 }
