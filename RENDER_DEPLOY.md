@@ -16,7 +16,7 @@ Fill in the secret env vars when prompted.
 | ------------------- | ---------------------------------------- |
 | Runtime             | Node                                     |
 | Node version        | 20 (set env `NODE_VERSION=20`)           |
-| Build Command       | `npm install && npm run build:node`      |
+| Build Command       | `npm install --legacy-peer-deps && npm run build:node` |
 | Start Command       | `npm start`                              |
 | Health check path   | `/`                                      |
 
