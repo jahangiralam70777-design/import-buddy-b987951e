@@ -988,6 +988,44 @@ export function McqFlow() {
                     <SummaryStat icon={Target} label="Previous Accuracy" value={completed ? `${accuracy}%` : "—"} tone="oklch(0.75 0.18 150)" />
                     <SummaryStat icon={Trophy} label="Recommended Goal" value="80%+" tone="oklch(0.82 0.16 85)" />
                   </div>
+
+                  {/* Session Config */}
+                  <div className="relative mt-5 rounded-2xl border border-border/60 bg-background/40 p-4">
+                    <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                      <Settings2 className="h-3.5 w-3.5" /> Session settings
+                    </p>
+                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div>
+                        <label className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground"><Shuffle className="h-3 w-3" /> Question count</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(["10", "25", "50", "all"] as const).map((c) => (
+                            <button key={c} onClick={() => setSessionCount(c)} className={`rounded-full px-3 py-1 text-[11px] font-semibold capitalize transition-all ${sessionCount === c ? "bg-cta-gradient text-white shadow-glow" : "glass text-foreground/70 hover:text-foreground"}`}>{c === "all" ? "All" : c}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground"><Timer className="h-3 w-3" /> Timer</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {([0, 5, 10, 20] as const).map((m) => (
+                            <button key={m} onClick={() => { setSessionTimerMin(m); setTimeLeft(m * 60); }} className={`rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${sessionTimerMin === m ? "bg-cta-gradient text-white shadow-glow" : "glass text-foreground/70 hover:text-foreground"}`}>{m === 0 ? "Off" : `${m}m`}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground"><Lightbulb className="h-3 w-3" /> Mode</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          <button onClick={() => setSessionMode("instant")} className={`rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${sessionMode === "instant" ? "bg-cta-gradient text-white shadow-glow" : "glass text-foreground/70 hover:text-foreground"}`}>Instant explanation</button>
+                          <button onClick={() => setSessionMode("submit-end")} className={`rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${sessionMode === "submit-end" ? "bg-cta-gradient text-white shadow-glow" : "glass text-foreground/70 hover:text-foreground"}`}>Submit at end</button>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="mt-2 text-[10px] text-muted-foreground">
+                      {timeLeft > 0 ? `Live countdown will auto-submit after ${sessionTimerMin}m.` : "Untimed practice."} · Active scope: {sessionCount === "all" ? `${total || 0} MCQs` : `${Math.min(Number(sessionCount), total || 0)} of ${total || 0}`}
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
                 </div>
               );
             })()}
