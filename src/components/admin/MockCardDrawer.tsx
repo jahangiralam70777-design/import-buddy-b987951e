@@ -650,6 +650,7 @@ function MockDetailView({ quizId, onBack }: { quizId: string; onBack: () => void
     queryKey: ["mock-detail", quizId, rangeDays],
     queryFn: () => fn({ data: { quizId, rangeDays } }),
   });
+  const pulse = useMockRealtimePulse(true, ["mock-detail", "mock-activity"]);
 
   const mock = data?.mock as Row | undefined;
   const completionGauge = useMemo(() => {
@@ -675,14 +676,19 @@ function MockDetailView({ quizId, onBack }: { quizId: string; onBack: () => void
         <div className="space-y-4 px-6 py-4">
           {isLoading || !data ? <LoadingRow /> : (
             <>
-              <div className="flex items-center justify-between">
-                <RangeTabs value={rangeDays} onChange={setRangeDays} />
-                <Button variant="outline" size="sm" onClick={() => exportCsv(
-                  `mock-${quizId}-attempts-${rangeDays}d.csv`,
-                  ["Day", "Attempts", "Completed", "Avg Score"],
-                  data.daily.map((d) => [d.day, d.count, d.completed, d.avgScore]),
-                )}><Download className="h-4 w-4" /> CSV</Button>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <RangeTabs value={rangeDays} onChange={setRangeDays} />
+                  <LivePulse pulse={pulse} />
+                </div>
+                <ExportMenu
+                  baseName={`mock-${quizId}-${rangeDays}d`}
+                  title={mock?.title ? `${mock.title} · ${rangeDays}d` : "Mock detail"}
+                  header={["Day", "Attempts", "Completed", "Avg Score"]}
+                  rows={data.daily.map((d) => [d.day, d.count, d.completed, d.avgScore])}
+                />
               </div>
+
 
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <Stat label="Attempts" value={data.stats.totalAttempts} />
