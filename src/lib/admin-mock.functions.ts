@@ -954,3 +954,99 @@ export const adminMockDetail = createServerFn({ method: "POST" })
       recent,
     };
   });
+
+// ---------- Slice 4: platform activity feed for mock tests ----------
+// Returns the most recent attempt events (starts/completions) joined with
+// profile + quiz title, plus admin edit/create events sourced from quizzes.updated_at.
+export const adminMockActivity = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: { quizId?: string; limit?: number } | undefined) =>
+    z
+      .object({
+        quizId: z.string().uuid().optional(),
+        limit: z.number().int().min(1).max(200).default(50),
+      })
+      .parse(i ?? {}),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const sb = context.supabase;
+
+    let aq = sb
+      .from("exam_attempts")
+      .select("id,user_id,quiz_id,title,status,score,started_at,completed_at,duration_seconds")
+      .eq("kind", "mock")
+      .order("started_at", { ascending: false })
+      .limit(data.limit);
+    if (data.quizId) aq = aq.eq("quiz_id", data.quizId);
+    const { data: attempts, error: aerr } = await aq;
+    if (aerr) throw aerr;
+
+    let qq = sb
+      .from("quizzes")
+      .select("id,title,status,updated_at,created_at")
+      .eq("kind", "mock")
+      .order("updated_at", { ascending: false })
+      .limit(data.limit);
+    if (data.quizId) qq = qq.eq("id", data.quizId);
+    const { data: quizEdits, error: qerr } = await qq;
+    if (qerr) throw qerr;
+
+    const userIds = Array.from(
+      new Set(((attempts ?? []) as Array<{ user_id: string }>).map((a) => a.user_id).filter(Boolean)),
+    );
+    const profileMap = new Map<string, string>();
+    if (userIds.length) {
+      const { data: profiles } = await sb
+        .from("profiles")
+        .select("id,display_name")
+        .in("id", userIds);
+      for (const p of (profiles ?? []) as Array<{ id: string; display_name: string | null }>) {
+        profileMap.set(p.id, p.display_name ?? "User");
+      }
+    }
+
+    type Event = {
+      at: string;
+      kind: "started" | "completed" | "edited" | "created";
+      actor: string;
+      target: string;
+      quizId: string | null;
+      meta: string;
+    };
+    const events: Event[] = [];
+
+    for (const a of (attempts ?? []) as Array<{
+      id: string; user_id: string; quiz_id: string | null; title: string | null;
+      status: string | null; score: number | null;
+      started_at: string | null; completed_at: string | null; duration_seconds: number | null;
+    }>) {
+      const actor = profileMap.get(a.user_id) ?? "User";
+      const target = a.title ?? "Mock";
+      if (a.completed_at) {
+        events.push({
+          at: a.completed_at, kind: "completed", actor, target, quizId: a.quiz_id,
+          meta: a.score != null ? `${a.score}% · ${Math.round((a.duration_seconds ?? 0) / 60)}m` : "—",
+        });
+      } else if (a.started_at) {
+        events.push({
+          at: a.started_at, kind: "started", actor, target, quizId: a.quiz_id, meta: "in progress",
+        });
+      }
+    }
+
+    for (const q of (quizEdits ?? []) as Array<{ id: string; title: string; status: string; updated_at: string; created_at: string }>) {
+      const isNew = q.created_at && q.updated_at && Math.abs(new Date(q.updated_at).getTime() - new Date(q.created_at).getTime()) < 5000;
+      events.push({
+        at: q.updated_at,
+        kind: isNew ? "created" : "edited",
+        actor: "Admin",
+        target: q.title,
+        quizId: q.id,
+        meta: q.status,
+      });
+    }
+
+    events.sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
+    return { events: events.slice(0, data.limit) };
+  });
