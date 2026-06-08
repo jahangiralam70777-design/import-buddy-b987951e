@@ -524,6 +524,7 @@ function AttemptsView({ focus, onDrillMock }: { focus?: "completion"; onDrillMoc
           </div>
         )}
       </div>
+      <ActivityFeed />
     </div>
   );
 }
