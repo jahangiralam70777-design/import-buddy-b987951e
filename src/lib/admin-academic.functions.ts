@@ -216,7 +216,6 @@ const levelInput = z.object({
   icon: z.string().trim().max(60).nullable().optional(),
   sort_order: z.number().int().min(0).max(9999).default(0),
   status: statusEnum.default("published"),
-  is_locked: z.boolean().optional().default(false),
 });
 
 export const adminCreateLevel = createServerFn({ method: "POST" })

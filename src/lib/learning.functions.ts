@@ -8,11 +8,19 @@ export const listLevels = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("levels")
-      .select("code,name,description,color,icon,sort_order,is_locked")
-      .eq("status", "published")
+      .select("code,name,description,color,icon,sort_order,status")
+      .in("status", ["published", "archived"])
       .order("sort_order", { ascending: true });
     if (error) throw error;
-    return data ?? [];
+    return (data ?? []).map((l) => ({
+      code: l.code,
+      name: l.name,
+      description: l.description,
+      color: l.color,
+      icon: l.icon,
+      sort_order: l.sort_order,
+      is_locked: l.status === "archived",
+    }));
   });
 
 
