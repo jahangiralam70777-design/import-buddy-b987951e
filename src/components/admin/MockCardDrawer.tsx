@@ -415,6 +415,7 @@ function AttemptsView({ focus, onDrillMock }: { focus?: "completion"; onDrillMoc
     queryKey: ["mock-card-attempts", rangeDays],
     queryFn: () => fn({ data: { rangeDays } }),
   });
+  const pulse = useMockRealtimePulse(true, ["mock-card-attempts", "mock-activity"]);
   if (isLoading || !data) return <LoadingRow />;
 
   const completionPieData = [
@@ -424,14 +425,19 @@ function AttemptsView({ focus, onDrillMock }: { focus?: "completion"; onDrillMoc
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <RangeTabs value={rangeDays} onChange={setRangeDays} />
-        <Button variant="outline" size="sm" onClick={() => exportCsv(
-          `mock-attempts-${rangeDays}d.csv`,
-          ["Day", "Attempts", "Completed", "Avg Score"],
-          data.daily.map((d) => [d.day, d.count, d.completed, d.avgScore]),
-        )}><Download className="h-4 w-4" /> CSV</Button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <RangeTabs value={rangeDays} onChange={setRangeDays} />
+          <LivePulse pulse={pulse} />
+        </div>
+        <ExportMenu
+          baseName={`mock-attempts-${rangeDays}d`}
+          title={`Mock attempts · last ${rangeDays} days`}
+          header={["Day", "Attempts", "Completed", "Avg Score"]}
+          rows={data.daily.map((d) => [d.day, d.count, d.completed, d.avgScore])}
+        />
       </div>
+
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="Total attempts" value={data.totalAttempts} />
