@@ -702,37 +702,76 @@ export const adminMockBreakdowns = createServerFn({ method: "POST" })
 // Attempts overview from exam_attempts where kind='mock'. Real Supabase reads.
 export const adminMockAttemptsOverview = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .inputValidator((i: { rangeDays?: number } | undefined) =>
+    z.object({ rangeDays: z.number().int().min(1).max(365).default(30) }).parse(i ?? {}),
+  )
+  .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
     const sb = context.supabase;
-    const sinceIso = new Date(Date.now() - 30 * 86400_000).toISOString();
+    const rangeDays = data.rangeDays;
+    const sinceIso = new Date(Date.now() - rangeDays * 86400_000).toISOString();
 
     const [{ count: totalAttempts }, { count: completed }, { data: recent }] = await Promise.all([
       sb.from("exam_attempts").select("id", { count: "exact", head: true }).eq("kind", "mock"),
       sb.from("exam_attempts").select("id", { count: "exact", head: true }).eq("kind", "mock").not("completed_at", "is", null),
-      sb.from("exam_attempts").select("quiz_id,status,started_at,completed_at,title").eq("kind", "mock").gte("started_at", sinceIso).limit(5000),
+      sb
+        .from("exam_attempts")
+        .select("quiz_id,status,started_at,completed_at,title,score,duration_seconds,correct_count,total_count")
+        .eq("kind", "mock").gte("started_at", sinceIso).limit(10000),
     ]);
 
     const tot = totalAttempts ?? 0;
     const done = completed ?? 0;
     const abandoned = Math.max(0, tot - done);
 
-    const dayMap = new Map<string, number>();
-    for (const r of (recent ?? []) as Array<{ started_at: string | null }>) {
+    type AttemptRow = {
+      quiz_id: string | null; status: string | null;
+      started_at: string | null; completed_at: string | null;
+      title: string | null; score: number | null;
+      duration_seconds: number | null;
+      correct_count: number | null; total_count: number | null;
+    };
+    const rows = (recent ?? []) as AttemptRow[];
+
+    const dailyMap = new Map<string, { attempts: number; completed: number; scoreSum: number; scoreN: number }>();
+    for (let i = rangeDays - 1; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400_000).toISOString().slice(0, 10);
+      dailyMap.set(d, { attempts: 0, completed: 0, scoreSum: 0, scoreN: 0 });
+    }
+    for (const r of rows) {
       const d = r.started_at ? r.started_at.slice(0, 10) : null;
       if (!d) continue;
-      dayMap.set(d, (dayMap.get(d) ?? 0) + 1);
+      const slot = dailyMap.get(d);
+      if (!slot) continue;
+      slot.attempts += 1;
+      if (r.completed_at) slot.completed += 1;
+      if (typeof r.score === "number") { slot.scoreSum += r.score; slot.scoreN += 1; }
     }
-    const daily = Array.from(dayMap.entries())
-      .map(([day, count]) => ({ day, count }))
-      .sort((a, b) => a.day.localeCompare(b.day));
+    const daily = Array.from(dailyMap.entries()).map(([day, v]) => ({
+      day,
+      count: v.attempts,
+      completed: v.completed,
+      avgScore: v.scoreN ? Math.round((v.scoreSum / v.scoreN) * 10) / 10 : 0,
+    }));
 
-    // Top mocks by attempts (recent sample).
-    const perMock = new Map<string, { count: number; title: string | null }>();
-    for (const r of (recent ?? []) as Array<{ quiz_id: string | null; title: string | null }>) {
+    const buckets = [
+      { label: "0-20", min: 0, max: 20 },
+      { label: "21-40", min: 21, max: 40 },
+      { label: "41-60", min: 41, max: 60 },
+      { label: "61-80", min: 61, max: 80 },
+      { label: "81-100", min: 81, max: 100 },
+    ];
+    const scoreHistogram = buckets.map((b) => ({
+      label: b.label,
+      count: rows.filter((r) => typeof r.score === "number" && r.score >= b.min && r.score <= b.max).length,
+    }));
+
+    const perMock = new Map<string, { count: number; title: string | null; scoreSum: number; scoreN: number }>();
+    for (const r of rows) {
       const key = r.quiz_id ?? `__notitle__:${r.title ?? "unknown"}`;
-      const cur = perMock.get(key) ?? { count: 0, title: r.title };
+      const cur = perMock.get(key) ?? { count: 0, title: r.title, scoreSum: 0, scoreN: 0 };
       cur.count += 1;
+      if (typeof r.score === "number") { cur.scoreSum += r.score; cur.scoreN += 1; }
       perMock.set(key, cur);
     }
     const topRaw = Array.from(perMock.entries()).sort((a, b) => b[1].count - a[1].count).slice(0, 10);
@@ -745,17 +784,173 @@ export const adminMockAttemptsOverview = createServerFn({ method: "POST" })
       }
     }
     const topMocks = topRaw.map(([id, v]) => ({
-      id,
+      id: id.startsWith("__notitle__:") ? null : id,
       title: titleMap.get(id) ?? v.title ?? "Untitled mock",
       attempts: v.count,
+      avgScore: v.scoreN ? Math.round((v.scoreSum / v.scoreN) * 10) / 10 : 0,
     }));
 
+    const scoreN = rows.filter((r) => typeof r.score === "number").length;
+    const avgScore = scoreN
+      ? Math.round((rows.reduce((s, r) => s + (r.score ?? 0), 0) / scoreN) * 10) / 10
+      : 0;
+    const avgDuration = rows.length
+      ? Math.round(rows.reduce((s, r) => s + (r.duration_seconds ?? 0), 0) / rows.length)
+      : 0;
+
     return {
+      rangeDays,
       totalAttempts: tot,
       completed: done,
       abandoned,
       completionRate: tot ? Math.round((done / tot) * 1000) / 10 : 0,
+      avgScore,
+      avgDurationSeconds: avgDuration,
       daily,
+      scoreHistogram,
       topMocks,
+    };
+  });
+
+// Per-mock detail: attempts series, score distribution, top scorers,
+// completion rate, avg duration, recent activity. Real Supabase reads.
+export const adminMockDetail = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: { quizId: string; rangeDays?: number }) =>
+    z.object({
+      quizId: z.string().uuid(),
+      rangeDays: z.number().int().min(1).max(365).default(30),
+    }).parse(i),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const sb = context.supabase;
+    const sinceIso = new Date(Date.now() - data.rangeDays * 86400_000).toISOString();
+
+    const [{ data: mock }, attemptsAllRes, attemptsRangeRes] = await Promise.all([
+      sb.from("quizzes").select(mockSelect).eq("id", data.quizId).maybeSingle(),
+      sb
+        .from("exam_attempts")
+        .select("id,user_id,status,score,correct_count,total_count,duration_seconds,started_at,completed_at", { count: "exact" })
+        .eq("kind", "mock").eq("quiz_id", data.quizId),
+      sb
+        .from("exam_attempts")
+        .select("id,user_id,status,score,correct_count,total_count,duration_seconds,started_at,completed_at")
+        .eq("kind", "mock").eq("quiz_id", data.quizId)
+        .gte("started_at", sinceIso).limit(10000),
+    ]);
+    if (!mock) throw new Error("Mock not found");
+
+    type R = {
+      id: string; user_id: string; status: string | null;
+      score: number | null; correct_count: number | null; total_count: number | null;
+      duration_seconds: number | null;
+      started_at: string | null; completed_at: string | null;
+    };
+    const all = (attemptsAllRes.data ?? []) as R[];
+    const rangeRows = (attemptsRangeRes.data ?? []) as R[];
+
+    const total = attemptsAllRes.count ?? all.length;
+    const completed = all.filter((r) => r.completed_at).length;
+    const abandoned = Math.max(0, total - completed);
+    const scoreN = all.filter((r) => typeof r.score === "number").length;
+    const avgScore = scoreN
+      ? Math.round((all.reduce((s, r) => s + (r.score ?? 0), 0) / scoreN) * 10) / 10
+      : 0;
+    const avgDuration = all.length
+      ? Math.round(all.reduce((s, r) => s + (r.duration_seconds ?? 0), 0) / all.length)
+      : 0;
+
+    const dailyMap = new Map<string, { attempts: number; completed: number; scoreSum: number; scoreN: number }>();
+    for (let i = data.rangeDays - 1; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400_000).toISOString().slice(0, 10);
+      dailyMap.set(d, { attempts: 0, completed: 0, scoreSum: 0, scoreN: 0 });
+    }
+    for (const r of rangeRows) {
+      const d = r.started_at ? r.started_at.slice(0, 10) : null;
+      if (!d) continue;
+      const slot = dailyMap.get(d);
+      if (!slot) continue;
+      slot.attempts += 1;
+      if (r.completed_at) slot.completed += 1;
+      if (typeof r.score === "number") { slot.scoreSum += r.score; slot.scoreN += 1; }
+    }
+    const daily = Array.from(dailyMap.entries()).map(([day, v]) => ({
+      day,
+      count: v.attempts,
+      completed: v.completed,
+      avgScore: v.scoreN ? Math.round((v.scoreSum / v.scoreN) * 10) / 10 : 0,
+    }));
+
+    const buckets = [
+      { label: "0-20", min: 0, max: 20 },
+      { label: "21-40", min: 21, max: 40 },
+      { label: "41-60", min: 41, max: 60 },
+      { label: "61-80", min: 61, max: 80 },
+      { label: "81-100", min: 81, max: 100 },
+    ];
+    const scoreHistogram = buckets.map((b) => ({
+      label: b.label,
+      count: all.filter((r) => typeof r.score === "number" && r.score >= b.min && r.score <= b.max).length,
+    }));
+
+    const perUser = new Map<string, { score: number; attempts: number; lastAt: string | null }>();
+    for (const r of all) {
+      const cur = perUser.get(r.user_id) ?? { score: -1, attempts: 0, lastAt: null };
+      cur.attempts += 1;
+      if (typeof r.score === "number" && r.score > cur.score) cur.score = r.score;
+      const t = r.completed_at ?? r.started_at;
+      if (t && (!cur.lastAt || t > cur.lastAt)) cur.lastAt = t;
+      perUser.set(r.user_id, cur);
+    }
+    const topUserIds = Array.from(perUser.entries())
+      .sort((a, b) => b[1].score - a[1].score).slice(0, 10);
+    const userIds = topUserIds.map(([id]) => id);
+    const profileMap = new Map<string, { name: string }>();
+    if (userIds.length) {
+      const { data: profiles } = await sb
+        .from("profiles").select("id,display_name").in("id", userIds);
+      for (const p of (profiles ?? []) as unknown as Array<{ id: string; display_name: string | null }>) {
+        profileMap.set(p.id, { name: p.display_name ?? "User" });
+      }
+    }
+    const topScorers = topUserIds.map(([id, v]) => ({
+      user_id: id,
+      name: profileMap.get(id)?.name ?? "User",
+      score: Math.max(0, v.score),
+      attempts: v.attempts,
+      lastAt: v.lastAt,
+    }));
+
+    const recent = [...all]
+      .sort((a, b) => (b.started_at ?? "").localeCompare(a.started_at ?? ""))
+      .slice(0, 25)
+      .map((r) => ({
+        id: r.id,
+        user_id: r.user_id,
+        userName: profileMap.get(r.user_id)?.name ?? "User",
+        status: r.completed_at ? "completed" : (r.status ?? "in_progress"),
+        score: r.score ?? null,
+        correct: r.correct_count ?? 0,
+        total: r.total_count ?? 0,
+        duration_seconds: r.duration_seconds ?? 0,
+        started_at: r.started_at,
+        completed_at: r.completed_at,
+      }));
+
+    return {
+      mock,
+      stats: {
+        totalAttempts: total,
+        completed,
+        abandoned,
+        completionRate: total ? Math.round((completed / total) * 1000) / 10 : 0,
+        avgScore,
+        avgDurationSeconds: avgDuration,
+      },
+      daily,
+      scoreHistogram,
+      topScorers,
+      recent,
     };
   });

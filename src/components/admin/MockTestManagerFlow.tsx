@@ -43,6 +43,7 @@ import {
   adminDuplicateMock,
   adminGetMockQuestions,
   adminAutoGenerateMock,
+  adminMockDetail,
 } from "@/lib/admin-mock.functions";
 import { MockCardDrawer, type MockCardKey } from "./MockCardDrawer";
 
@@ -997,31 +998,76 @@ function MockDetailsDialog({ mock, onClose, onEdit }: { mock: Mock | null; onClo
 }
 
 function MockAnalyticsDialog({ mock, onClose }: { mock: Mock | null; onClose: () => void }) {
-  const completion = mock ? Math.min(100, Math.max(12, mock.total_questions * 2)) : 0;
+  const fn = useServerFn(adminMockDetail);
+  const { data, isLoading } = useQuery({
+    queryKey: ["mock-analytics-dialog", mock?.id],
+    queryFn: () => fn({ data: { quizId: mock!.id, rangeDays: 30 } }),
+    enabled: !!mock,
+  });
   return (
     <Dialog open={!!mock} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>Mock Analytics</DialogTitle>
           <DialogDescription>{mock?.title}</DialogDescription>
         </DialogHeader>
-        {mock && (
-          <div className="grid gap-3 md:grid-cols-3">
-            {[{ label: "Attempts", value: Math.max(0, mock.total_questions * 3), icon: Users }, { label: "Avg score", value: `${completion}%`, icon: Target }, { label: "Duration", value: `${Math.round(mock.duration_seconds / 60)}m`, icon: Timer }].map((item) => (
-              <div key={item.label} className="rounded-xl border border-white/10 bg-background/30 p-4">
-                <item.icon className="mb-3 h-4 w-4 text-[var(--neon-blue)]" />
-                <p className="text-xs text-muted-foreground">{item.label}</p>
-                <p className="font-display text-2xl font-bold">{item.value}</p>
+        {(!mock || isLoading || !data) ? (
+          <div className="flex items-center justify-center py-12 text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-4">
+              {[
+                { label: "Attempts", value: data.stats.totalAttempts, icon: Users },
+                { label: "Completed", value: data.stats.completed, icon: CheckCircle2 },
+                { label: "Avg score", value: `${data.stats.avgScore}%`, icon: Target },
+                { label: "Avg time", value: `${Math.round(data.stats.avgDurationSeconds / 60)}m`, icon: Timer },
+              ].map((item) => (
+                <div key={item.label} className="rounded-xl border border-white/10 bg-background/30 p-4">
+                  <item.icon className="mb-3 h-4 w-4 text-[var(--neon-blue)]" />
+                  <p className="text-xs text-muted-foreground">{item.label}</p>
+                  <p className="font-display text-2xl font-bold">{item.value}</p>
+                </div>
+              ))}
+            </div>
+            <div className="rounded-xl border border-white/10 bg-background/30 p-4">
+              <p className="mb-2 text-xs font-semibold text-muted-foreground">Attempts & avg score — last 30 days</p>
+              <MiniLine data={data.daily} />
+            </div>
+            <div className="rounded-xl border border-white/10 bg-background/30 p-4">
+              <div className="mb-2 flex items-center justify-between text-xs">
+                <span>Completion rate</span><span>{data.stats.completionRate}%</span>
               </div>
-            ))}
-            <div className="rounded-xl border border-white/10 bg-background/30 p-4 md:col-span-3">
-              <div className="mb-2 flex items-center justify-between text-xs"><span>Readiness</span><span>{completion}%</span></div>
-              <div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-cta-gradient" style={{ width: `${completion}%` }} /></div>
+              <div className="h-2 overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full bg-cta-gradient" style={{ width: `${data.stats.completionRate}%` }} />
+              </div>
             </div>
           </div>
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function MiniLine({ data }: { data: Array<{ day: string; count: number; avgScore: number }> }) {
+  const max = Math.max(1, ...data.map((d) => d.count));
+  return (
+    <svg viewBox="0 0 300 80" className="h-20 w-full">
+      <polyline
+        fill="none"
+        stroke="#8b5cf6"
+        strokeWidth="2"
+        points={data.map((d, i) => `${(i / Math.max(1, data.length - 1)) * 300},${80 - (d.count / max) * 70}`).join(" ")}
+      />
+      <polyline
+        fill="none"
+        stroke="#f59e0b"
+        strokeWidth="1.5"
+        strokeDasharray="3 3"
+        points={data.map((d, i) => `${(i / Math.max(1, data.length - 1)) * 300},${80 - (d.avgScore / 100) * 70}`).join(" ")}
+      />
+    </svg>
   );
 }
 
