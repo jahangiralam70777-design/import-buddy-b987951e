@@ -1026,9 +1026,6 @@ export function McqFlow() {
                 </div>
               );
             })()}
-                </div>
-              );
-            })()}
 
             <StepFooter onBack={() => setStep(1)} backLabel="Back: Select Subject" />
           </section>
