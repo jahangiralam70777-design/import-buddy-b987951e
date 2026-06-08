@@ -6,7 +6,7 @@ import {
   BookOpen, ChevronRight, ChevronDown, Bookmark, Flame, ArrowLeft, ArrowRight,
   Check, X, Lightbulb, Loader2, Trophy, RotateCw, Eye, Clock, Target,
   CheckCircle2, XCircle, MinusCircle, BarChart3, Flag, Search, Play, Layers,
-  TrendingUp, Zap,
+  TrendingUp, Zap, Lock, Settings2, Timer, Shuffle,
 } from "lucide-react";
 
 import { listSubjects, listChapters, listMcqs, listSubjectProgress, listChapterProgress } from "@/lib/learning.functions";
@@ -169,6 +169,12 @@ export function McqFlow() {
     name: string;
     description: string | null;
   } | null>(null);
+
+  // Session config (chosen on the pre-session card)
+  const [sessionCount, setSessionCount] = useState<"10" | "25" | "50" | "all">("25");
+  const [sessionTimerMin, setSessionTimerMin] = useState<0 | 5 | 10 | 20>(0); // 0 = off
+  const [sessionMode, setSessionMode] = useState<"instant" | "submit-end">("instant");
+  const [timeLeft, setTimeLeft] = useState<number>(0);
   const toggleFlag = useCallback((i: number) => {
     setFlagged((prev) => {
       const next = new Set(prev);
@@ -191,7 +197,7 @@ export function McqFlow() {
   const recordOutcomesFn = useServerFn(recordMcqOutcomes);
   const qc = useQueryClient();
 
-  const levelsQ = useLevels();
+  const levelsQ = useLevels({ includeLocked: true });
   const levelsList = levelsQ.data ?? [];
   const levelName = useMemo(
     () => levelsList.find((l) => l.code === level)?.name ?? level ?? "",
@@ -271,8 +277,13 @@ export function McqFlow() {
     enabled: !!chapterId && step === 3,
   });
 
-  // Full chapter (all MCQs).
-  const allMcqs = useMemo(() => (mcqsQ.data ?? []) as Mcq[], [mcqsQ.data]);
+  // Full chapter (all MCQs), optionally truncated by session config.
+  const rawMcqs = useMemo(() => (mcqsQ.data ?? []) as Mcq[], [mcqsQ.data]);
+  const allMcqs = useMemo(() => {
+    if (sessionCount === "all") return rawMcqs;
+    const n = Number(sessionCount);
+    return rawMcqs.slice(0, n);
+  }, [rawMcqs, sessionCount]);
   const totalAll = allMcqs.length;
   const numBatches = Math.max(1, Math.ceil(totalAll / BATCH_SIZE));
   const safeBatchIndex = Math.min(batchIndex, Math.max(0, numBatches - 1));
@@ -708,8 +719,9 @@ export function McqFlow() {
                       return (
                         <button
                           key={l.code}
-                          onClick={() => { setLevel(l.code); setStep(1); }}
-                          className={`group relative rounded-3xl p-px text-left transition-transform hover:-translate-y-1 ${active ? "ring-2 ring-primary shadow-glow" : ""}`}
+                          onClick={() => { if (l.is_locked) return; setLevel(l.code); setStep(1); }}
+                          disabled={!!l.is_locked}
+                          className={`group relative rounded-3xl p-px text-left transition-transform ${l.is_locked ? "cursor-not-allowed opacity-60" : "hover:-translate-y-1"} ${active ? "ring-2 ring-primary shadow-glow" : ""}`}
                           style={{ background: `linear-gradient(135deg, ${tone}, transparent 65%)` }}
                         >
                           <div className="glass relative h-full overflow-hidden rounded-[calc(theme(borderRadius.3xl)-1px)] p-6">
@@ -718,13 +730,17 @@ export function McqFlow() {
                               <div className="flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-glow" style={{ background: `linear-gradient(135deg, ${tone}, oklch(0.55 0.2 270))` }}>
                                 <Icon className="h-6 w-6" />
                               </div>
-                              {active && (
+                              {l.is_locked ? (
+                                <span className="flex h-6 items-center gap-1 rounded-full bg-zinc-900/70 px-2 text-[10px] font-bold uppercase tracking-wide text-zinc-100 ring-1 ring-white/10">
+                                  <Lock className="h-3 w-3" /> Locked
+                                </span>
+                              ) : active ? (
                                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-cta-gradient text-white shadow-glow">
                                   <Check className="h-3.5 w-3.5" />
                                 </span>
-                              )}
+                              ) : null}
                             </div>
-                            {recommended && (
+                            {recommended && !l.is_locked && (
                               <span className="relative mt-4 inline-flex items-center gap-1 rounded-full bg-amber-400/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-500 ring-1 ring-amber-400/30">
                                 <Sparkles className="h-3 w-3" /> Recommended
                               </span>
@@ -734,9 +750,11 @@ export function McqFlow() {
                               {l.description ?? "Tap to begin practising at this level."}
                             </p>
                             <div className="relative mt-5 flex items-center justify-between">
-                              <span className="text-[11px] uppercase tracking-widest text-muted-foreground">Continue</span>
-                              <span className="inline-flex items-center gap-1 text-xs font-bold text-gradient transition-all group-hover:gap-2">
-                                Select level <ArrowRight className="h-3.5 w-3.5" />
+                              <span className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                                {l.is_locked ? "Unavailable" : "Continue"}
+                              </span>
+                              <span className={`inline-flex items-center gap-1 text-xs font-bold transition-all ${l.is_locked ? "text-muted-foreground" : "text-gradient group-hover:gap-2"}`}>
+                                {l.is_locked ? "Ask an admin" : <>Select level <ArrowRight className="h-3.5 w-3.5" /></>}
                               </span>
                             </div>
                           </div>
@@ -970,6 +988,44 @@ export function McqFlow() {
                     <SummaryStat icon={Target} label="Previous Accuracy" value={completed ? `${accuracy}%` : "—"} tone="oklch(0.75 0.18 150)" />
                     <SummaryStat icon={Trophy} label="Recommended Goal" value="80%+" tone="oklch(0.82 0.16 85)" />
                   </div>
+
+                  {/* Session Config */}
+                  <div className="relative mt-5 rounded-2xl border border-border/60 bg-background/40 p-4">
+                    <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                      <Settings2 className="h-3.5 w-3.5" /> Session settings
+                    </p>
+                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div>
+                        <label className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground"><Shuffle className="h-3 w-3" /> Question count</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(["10", "25", "50", "all"] as const).map((c) => (
+                            <button key={c} onClick={() => setSessionCount(c)} className={`rounded-full px-3 py-1 text-[11px] font-semibold capitalize transition-all ${sessionCount === c ? "bg-cta-gradient text-white shadow-glow" : "glass text-foreground/70 hover:text-foreground"}`}>{c === "all" ? "All" : c}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground"><Timer className="h-3 w-3" /> Timer</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {([0, 5, 10, 20] as const).map((m) => (
+                            <button key={m} onClick={() => { setSessionTimerMin(m); setTimeLeft(m * 60); }} className={`rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${sessionTimerMin === m ? "bg-cta-gradient text-white shadow-glow" : "glass text-foreground/70 hover:text-foreground"}`}>{m === 0 ? "Off" : `${m}m`}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground"><Lightbulb className="h-3 w-3" /> Mode</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          <button onClick={() => setSessionMode("instant")} className={`rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${sessionMode === "instant" ? "bg-cta-gradient text-white shadow-glow" : "glass text-foreground/70 hover:text-foreground"}`}>Instant explanation</button>
+                          <button onClick={() => setSessionMode("submit-end")} className={`rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${sessionMode === "submit-end" ? "bg-cta-gradient text-white shadow-glow" : "glass text-foreground/70 hover:text-foreground"}`}>Submit at end</button>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="mt-2 text-[10px] text-muted-foreground">
+                      {timeLeft > 0 ? `Live countdown will auto-submit after ${sessionTimerMin}m.` : "Untimed practice."} · Active scope: {sessionCount === "all" ? `${total || 0} MCQs` : `${Math.min(Number(sessionCount), total || 0)} of ${total || 0}`}
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
                 </div>
               );
             })()}
