@@ -719,8 +719,9 @@ export function McqFlow() {
                       return (
                         <button
                           key={l.code}
-                          onClick={() => { setLevel(l.code); setStep(1); }}
-                          className={`group relative rounded-3xl p-px text-left transition-transform hover:-translate-y-1 ${active ? "ring-2 ring-primary shadow-glow" : ""}`}
+                          onClick={() => { if (l.is_locked) return; setLevel(l.code); setStep(1); }}
+                          disabled={!!l.is_locked}
+                          className={`group relative rounded-3xl p-px text-left transition-transform ${l.is_locked ? "cursor-not-allowed opacity-60" : "hover:-translate-y-1"} ${active ? "ring-2 ring-primary shadow-glow" : ""}`}
                           style={{ background: `linear-gradient(135deg, ${tone}, transparent 65%)` }}
                         >
                           <div className="glass relative h-full overflow-hidden rounded-[calc(theme(borderRadius.3xl)-1px)] p-6">
@@ -729,13 +730,17 @@ export function McqFlow() {
                               <div className="flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-glow" style={{ background: `linear-gradient(135deg, ${tone}, oklch(0.55 0.2 270))` }}>
                                 <Icon className="h-6 w-6" />
                               </div>
-                              {active && (
+                              {l.is_locked ? (
+                                <span className="flex h-6 items-center gap-1 rounded-full bg-zinc-900/70 px-2 text-[10px] font-bold uppercase tracking-wide text-zinc-100 ring-1 ring-white/10">
+                                  <Lock className="h-3 w-3" /> Locked
+                                </span>
+                              ) : active ? (
                                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-cta-gradient text-white shadow-glow">
                                   <Check className="h-3.5 w-3.5" />
                                 </span>
-                              )}
+                              ) : null}
                             </div>
-                            {recommended && (
+                            {recommended && !l.is_locked && (
                               <span className="relative mt-4 inline-flex items-center gap-1 rounded-full bg-amber-400/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-500 ring-1 ring-amber-400/30">
                                 <Sparkles className="h-3 w-3" /> Recommended
                               </span>
@@ -745,9 +750,11 @@ export function McqFlow() {
                               {l.description ?? "Tap to begin practising at this level."}
                             </p>
                             <div className="relative mt-5 flex items-center justify-between">
-                              <span className="text-[11px] uppercase tracking-widest text-muted-foreground">Continue</span>
-                              <span className="inline-flex items-center gap-1 text-xs font-bold text-gradient transition-all group-hover:gap-2">
-                                Select level <ArrowRight className="h-3.5 w-3.5" />
+                              <span className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                                {l.is_locked ? "Unavailable" : "Continue"}
+                              </span>
+                              <span className={`inline-flex items-center gap-1 text-xs font-bold transition-all ${l.is_locked ? "text-muted-foreground" : "text-gradient group-hover:gap-2"}`}>
+                                {l.is_locked ? "Ask an admin" : <>Select level <ArrowRight className="h-3.5 w-3.5" /></>}
                               </span>
                             </div>
                           </div>
