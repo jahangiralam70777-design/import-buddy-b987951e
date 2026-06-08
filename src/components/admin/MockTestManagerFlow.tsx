@@ -43,6 +43,7 @@ import {
   adminDuplicateMock,
   adminGetMockQuestions,
   adminAutoGenerateMock,
+  adminMockDetail,
 } from "@/lib/admin-mock.functions";
 import { MockCardDrawer, type MockCardKey } from "./MockCardDrawer";
 
