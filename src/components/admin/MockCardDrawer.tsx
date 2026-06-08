@@ -299,23 +299,19 @@ function MockListView({ preset, onDrillMock }: { preset: Preset; onDrillMock: (i
           />
         </div>
         <Badge variant="secondary">{data?.count ?? 0} total</Badge>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => exportCsv(
-            `mocks-${preset.status ?? preset.date ?? "all"}.csv`,
-            ["Title", "Status", "Level", "Questions", "Duration (min)", "Starts", "Ends", "Updated"],
-            rows.map((r) => [
-              r.title, r.status, r.level, r.total_questions,
-              Math.round(r.duration_seconds / 60),
-              r.starts_at ?? "", r.ends_at ?? "", r.updated_at,
-            ]),
-          )}
-        >
-          <Download className="h-4 w-4" /> CSV
-        </Button>
+        <ExportMenu
+          baseName={`mocks-${preset.status ?? preset.date ?? "all"}`}
+          title={`Mocks · ${preset.status ?? preset.date ?? "all"}`}
+          header={["Title", "Status", "Level", "Questions", "Duration (min)", "Starts", "Ends", "Updated"]}
+          rows={rows.map((r) => [
+            r.title, r.status, r.level, r.total_questions,
+            Math.round(r.duration_seconds / 60),
+            r.starts_at ?? "", r.ends_at ?? "", r.updated_at,
+          ])}
+        />
       </div>
       <MockTable rows={rows} isLoading={isLoading} onRowClick={onDrillMock} />
+      <ActivityFeed />
     </div>
   );
 }
@@ -373,13 +369,25 @@ function LiveMocksView({ onDrillMock }: { onDrillMock: (id: string) => void }) {
     queryFn: () => fn({ data: { limit: 100 } }),
     refetchInterval: 15_000,
   });
+  const pulse = useMockRealtimePulse(true, ["mock-card-live", "mock-activity"]);
   const rows = (data?.rows ?? []) as Row[];
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 text-xs text-emerald-400">
-        <Radio className="h-4 w-4" /> Auto-refreshing every 15s • {rows.length} live
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <LivePulse pulse={pulse} label={`${rows.length} live now`} />
+        <ExportMenu
+          baseName="mocks-live-now"
+          title="Live mocks"
+          header={["Title", "Status", "Level", "Questions", "Duration (min)", "Starts", "Ends"]}
+          rows={rows.map((r) => [
+            r.title, r.status, r.level, r.total_questions,
+            Math.round(r.duration_seconds / 60),
+            r.starts_at ?? "", r.ends_at ?? "",
+          ])}
+        />
       </div>
       <MockTable rows={rows} isLoading={isLoading} onRowClick={onDrillMock} />
+      <ActivityFeed />
     </div>
   );
 }
