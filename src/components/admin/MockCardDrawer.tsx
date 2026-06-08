@@ -737,7 +737,17 @@ function MockDetailView({ quizId, onBack }: { quizId: string; onBack: () => void
               </ChartCard>
 
               <div>
-                <p className="mb-2 text-xs font-semibold text-muted-foreground">Top scorers</p>
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-semibold text-muted-foreground">Top scorers</p>
+                  {data.topScorers.length > 0 && (
+                    <ExportMenu
+                      baseName={`mock-${quizId}-top-scorers`}
+                      title="Top scorers"
+                      header={["User", "Best %", "Attempts", "Last"]}
+                      rows={data.topScorers.map((u) => [u.name, u.score, u.attempts, u.lastAt ?? ""])}
+                    />
+                  )}
+                </div>
                 {data.topScorers.length === 0 ? <Empty message="No scorers yet." /> : (
                   <div className="overflow-hidden rounded-xl border border-white/10">
                     <Table>
@@ -767,7 +777,20 @@ function MockDetailView({ quizId, onBack }: { quizId: string; onBack: () => void
               </div>
 
               <div>
-                <p className="mb-2 text-xs font-semibold text-muted-foreground">Recent attempts</p>
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-semibold text-muted-foreground">Recent attempts</p>
+                  {data.recent.length > 0 && (
+                    <ExportMenu
+                      baseName={`mock-${quizId}-recent-attempts`}
+                      title="Recent attempts"
+                      header={["User", "Status", "Score", "Duration (s)", "Started", "Completed"]}
+                      rows={data.recent.map((r) => [
+                        r.userName, r.status, r.score ?? "",
+                        r.duration_seconds, r.started_at ?? "", r.completed_at ?? "",
+                      ])}
+                    />
+                  )}
+                </div>
                 {data.recent.length === 0 ? <Empty message="No attempts yet." /> : (
                   <div className="overflow-hidden rounded-xl border border-white/10">
                     <Table>
@@ -797,8 +820,11 @@ function MockDetailView({ quizId, onBack }: { quizId: string; onBack: () => void
                   </div>
                 )}
               </div>
+
+              <ActivityFeed quizId={quizId} />
             </>
           )}
+
         </div>
       </ScrollArea>
     </div>
