@@ -191,7 +191,7 @@ export function McqFlow() {
   const recordOutcomesFn = useServerFn(recordMcqOutcomes);
   const qc = useQueryClient();
 
-  const levelsQ = useLevels();
+  const levelsQ = useLevels({ includeLocked: true });
   const levelsList = levelsQ.data ?? [];
   const levelName = useMemo(
     () => levelsList.find((l) => l.code === level)?.name ?? level ?? "",
