@@ -123,6 +123,7 @@ export function MockTestManagerFlow() {
     [liveLevels],
   );
 
+  const [openCard, setOpenCard] = useState<MockCardKey | null>(null);
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search.trim());
   const [filterStatus, setFilterStatus] = useState<"" | Status>("");
