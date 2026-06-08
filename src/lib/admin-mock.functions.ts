@@ -596,3 +596,166 @@ export const adminAutoGenerateMock = createServerFn({ method: "POST" })
     }
   });
 
+
+// ---------- Slice 1: card drawers ----------
+
+// Currently-live mocks: published AND inside (or open) active window.
+export const adminListLiveMocks = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: { limit?: number }) =>
+    z.object({ limit: z.number().int().min(1).max(200).default(50) }).parse(i ?? {}),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const nowIso = new Date().toISOString();
+    const { data: rows, error } = await context.supabase
+      .from("quizzes")
+      .select(mockSelect)
+      .eq("kind", "mock")
+      .eq("status", "published")
+      .or(`starts_at.is.null,starts_at.lte.${nowIso}`)
+      .or(`ends_at.is.null,ends_at.gte.${nowIso}`)
+      .order("starts_at", { ascending: true, nullsFirst: false })
+      .limit(data.limit);
+    if (error) throw error;
+    return { rows: rows ?? [] };
+  });
+
+// Bottom-card breakdowns: status counts, difficulty + level distributions,
+// largest mocks by question count. All real Supabase reads.
+export const adminMockBreakdowns = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const sb = context.supabase;
+
+    // Page all mock quizzes for distributions (typically small per project).
+    const rows: Array<{
+      id: string;
+      title: string;
+      status: string;
+      level: string;
+      difficulty: string;
+      total_questions: number | null;
+      starts_at: string | null;
+      ends_at: string | null;
+      updated_at: string;
+    }> = [];
+    let from = 0;
+    const pageSize = 1000;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { data, error } = await sb
+        .from("quizzes")
+        .select("id,title,status,level,difficulty,total_questions,starts_at,ends_at,updated_at")
+        .eq("kind", "mock")
+        .range(from, from + pageSize - 1);
+      if (error) throw error;
+      const batch = (data ?? []) as typeof rows;
+      rows.push(...batch);
+      if (batch.length < pageSize) break;
+      from += pageSize;
+    }
+
+    const bucket = (key: "status" | "level" | "difficulty") => {
+      const m = new Map<string, number>();
+      for (const r of rows) {
+        const k = String((r as Record<string, unknown>)[key] ?? "—");
+        m.set(k, (m.get(k) ?? 0) + 1);
+      }
+      return Array.from(m.entries())
+        .map(([label, count]) => ({ label, count }))
+        .sort((a, b) => b.count - a.count);
+    };
+
+    const questionBuckets = [
+      { label: "1–10", min: 1, max: 10 },
+      { label: "11–25", min: 11, max: 25 },
+      { label: "26–50", min: 26, max: 50 },
+      { label: "51–100", min: 51, max: 100 },
+      { label: "100+", min: 101, max: Infinity },
+    ].map((b) => ({
+      label: b.label,
+      count: rows.filter((r) => (r.total_questions ?? 0) >= b.min && (r.total_questions ?? 0) <= b.max).length,
+    }));
+
+    const largest = [...rows]
+      .sort((a, b) => (b.total_questions ?? 0) - (a.total_questions ?? 0))
+      .slice(0, 10)
+      .map((r) => ({ id: r.id, title: r.title, total_questions: r.total_questions ?? 0, status: r.status }));
+
+    const totalQuestions = rows.reduce((s, r) => s + (r.total_questions ?? 0), 0);
+    const avgQuestions = rows.length ? Math.round(totalQuestions / rows.length) : 0;
+
+    return {
+      totalMocks: rows.length,
+      totalQuestions,
+      avgQuestions,
+      byStatus: bucket("status"),
+      byLevel: bucket("level"),
+      byDifficulty: bucket("difficulty"),
+      questionBuckets,
+      largest,
+    };
+  });
+
+// Attempts overview from exam_attempts where kind='mock'. Real Supabase reads.
+export const adminMockAttemptsOverview = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const sb = context.supabase;
+    const sinceIso = new Date(Date.now() - 30 * 86400_000).toISOString();
+
+    const [{ count: totalAttempts }, { count: completed }, { data: recent }] = await Promise.all([
+      sb.from("exam_attempts").select("id", { count: "exact", head: true }).eq("kind", "mock"),
+      sb.from("exam_attempts").select("id", { count: "exact", head: true }).eq("kind", "mock").not("completed_at", "is", null),
+      sb.from("exam_attempts").select("quiz_id,status,started_at,completed_at,title").eq("kind", "mock").gte("started_at", sinceIso).limit(5000),
+    ]);
+
+    const tot = totalAttempts ?? 0;
+    const done = completed ?? 0;
+    const abandoned = Math.max(0, tot - done);
+
+    const dayMap = new Map<string, number>();
+    for (const r of (recent ?? []) as Array<{ started_at: string | null }>) {
+      const d = r.started_at ? r.started_at.slice(0, 10) : null;
+      if (!d) continue;
+      dayMap.set(d, (dayMap.get(d) ?? 0) + 1);
+    }
+    const daily = Array.from(dayMap.entries())
+      .map(([day, count]) => ({ day, count }))
+      .sort((a, b) => a.day.localeCompare(b.day));
+
+    // Top mocks by attempts (recent sample).
+    const perMock = new Map<string, { count: number; title: string | null }>();
+    for (const r of (recent ?? []) as Array<{ quiz_id: string | null; title: string | null }>) {
+      const key = r.quiz_id ?? `__notitle__:${r.title ?? "unknown"}`;
+      const cur = perMock.get(key) ?? { count: 0, title: r.title };
+      cur.count += 1;
+      perMock.set(key, cur);
+    }
+    const topRaw = Array.from(perMock.entries()).sort((a, b) => b[1].count - a[1].count).slice(0, 10);
+    const realIds = topRaw.map(([id]) => id).filter((id) => !id.startsWith("__notitle__:"));
+    const titleMap = new Map<string, string>();
+    if (realIds.length) {
+      const { data: titles } = await sb.from("quizzes").select("id,title").in("id", realIds);
+      for (const t of (titles ?? []) as Array<{ id: string; title: string }>) {
+        titleMap.set(t.id, t.title);
+      }
+    }
+    const topMocks = topRaw.map(([id, v]) => ({
+      id,
+      title: titleMap.get(id) ?? v.title ?? "Untitled mock",
+      attempts: v.count,
+    }));
+
+    return {
+      totalAttempts: tot,
+      completed: done,
+      abandoned,
+      completionRate: tot ? Math.round((done / tot) * 1000) / 10 : 0,
+      daily,
+      topMocks,
+    };
+  });
