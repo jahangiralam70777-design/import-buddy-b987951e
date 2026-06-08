@@ -906,18 +906,17 @@ export const adminMockDetail = createServerFn({ method: "POST" })
     const topUserIds = Array.from(perUser.entries())
       .sort((a, b) => b[1].score - a[1].score).slice(0, 10);
     const userIds = topUserIds.map(([id]) => id);
-    const profileMap = new Map<string, { name: string; email: string | null }>();
+    const profileMap = new Map<string, { name: string }>();
     if (userIds.length) {
       const { data: profiles } = await sb
-        .from("profiles").select("user_id,full_name,email").in("user_id", userIds);
-      for (const p of (profiles ?? []) as Array<{ user_id: string; full_name: string | null; email: string | null }>) {
-        profileMap.set(p.user_id, { name: p.full_name ?? p.email ?? "User", email: p.email });
+        .from("profiles").select("id,display_name").in("id", userIds);
+      for (const p of (profiles ?? []) as unknown as Array<{ id: string; display_name: string | null }>) {
+        profileMap.set(p.id, { name: p.display_name ?? "User" });
       }
     }
     const topScorers = topUserIds.map(([id, v]) => ({
       user_id: id,
       name: profileMap.get(id)?.name ?? "User",
-      email: profileMap.get(id)?.email ?? null,
       score: Math.max(0, v.score),
       attempts: v.attempts,
       lastAt: v.lastAt,
