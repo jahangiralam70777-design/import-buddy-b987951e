@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: starter
     region: oregon
-    buildCommand: npm install && npm run build:node
+    buildCommand: npm install --legacy-peer-deps && npm run build:node
     startCommand: npm start
     envVars:
       - key: NITRO_PRESET
